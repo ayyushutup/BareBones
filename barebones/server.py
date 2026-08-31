@@ -2,6 +2,7 @@ import socket
 import threading
 import selectors
 import urllib.parse
+import time
 from .router import Request, Response, Router
 from .middleware import MiddlewareChain
 from .websocket import calculate_accept_key, WebSocketConnection
@@ -15,6 +16,7 @@ class ConnectionState:
         self.request_body_acc = bytearray()
         self.response = None
         self.response_generator = None
+        self.last_activity = time.time()
 
 class BareBones:
     def __init__(self, secret_key="barebones_secret"):
@@ -29,8 +31,9 @@ class BareBones:
         self.selector = None
 
         # Register default body parser and session middlewares
-        from .middleware import json_parser_middleware, form_parser_middleware, gzip_middleware
+        from .middleware import json_parser_middleware, form_parser_middleware, gzip_middleware, rate_limit_middleware
         from .sessions import session_middleware
+        self.middleware.add(rate_limit_middleware(capacity=15, rate=3.0)) # 15 tokens capacity, 3 refills per sec
         self.middleware.add(json_parser_middleware)
         self.middleware.add(form_parser_middleware)
         self.middleware.add(session_middleware(secret_key))
@@ -125,6 +128,17 @@ class BareBones:
         self.selector.register(self.server_sock, selectors.EVENT_READ, data="accept")
 
         while self.running and not self._mode_changed:
+            now = time.time()
+            try:
+                for fd, key in list(self.selector.get_map().items()):
+                    if key.data != "accept":
+                        state = key.data
+                        if state.request is None and not state.write_buffer:
+                            if now - state.last_activity > 5.0:
+                                self.close_connection(state)
+            except Exception:
+                pass
+
             try:
                 events = self.selector.select(timeout=1.0)
             except Exception:
@@ -162,7 +176,23 @@ class BareBones:
         except Exception:
             pass
 
+    def finish_response(self, state):
+        keep_alive = getattr(state.request, "keep_alive", False)
+        if keep_alive and self.running:
+            state.read_buffer = bytearray()
+            state.request = None
+            state.request_body_acc = bytearray()
+            state.response = None
+            state.response_generator = None
+            try:
+                self.selector.modify(state.sock, selectors.EVENT_READ, data=state)
+            except Exception:
+                self.close_connection(state)
+        else:
+            self.close_connection(state)
+
     def process_read(self, state):
+        state.last_activity = time.time()
         try:
             chunk = state.sock.recv(4096)
         except (BlockingIOError, InterruptedError):
@@ -227,6 +257,15 @@ class BareBones:
                 state.response = resp
                 status_text = Response.STATUS_MAP.get(resp.status, "Unknown")
                 res_lines = [f"HTTP/1.1 {resp.status} {status_text}"]
+                
+                # Setup Connection Persistence headers
+                keep_alive = getattr(state.request, "keep_alive", False)
+                if keep_alive:
+                    resp.set_header("Connection", "keep-alive")
+                    resp.set_header("Keep-Alive", "timeout=5, max=100")
+                else:
+                    resp.set_header("Connection", "close")
+
                 if "content-length" not in resp.headers and not resp.file_path:
                     resp.set_header("Content-Length", str(len(resp.body)))
                 for k, v in resp.headers.items():
@@ -241,19 +280,20 @@ class BareBones:
                 self.selector.modify(state.sock, selectors.EVENT_WRITE, data=state)
 
     def process_write(self, state):
+        state.last_activity = time.time()
         if not state.write_buffer:
             if state.response_generator:
                 try:
                     chunk = next(state.response_generator)
                     state.write_buffer.extend(chunk)
                 except StopIteration:
-                    self.close_connection(state)
+                    self.finish_response(state)
                     return
                 except Exception:
                     self.close_connection(state)
                     return
             else:
-                self.close_connection(state)
+                self.finish_response(state)
                 return
 
         try:
@@ -293,7 +333,16 @@ def parse_request_headers(header_bytes, sock):
                 k, v = line.split(':', 1)
                 headers[k.strip().lower()] = v.strip()
 
-        return Request(method, path, headers, query, b"", {}, sock)
+        version = req_line[2] if len(req_line) > 2 else "HTTP/1.1"
+        conn_header = headers.get("connection", "").lower()
+        if "1.1" in version:
+            keep_alive = conn_header != "close"
+        else:
+            keep_alive = conn_header == "keep-alive"
+
+        req = Request(method, path, headers, query, b"", {}, sock)
+        req.keep_alive = keep_alive
+        return req
     except Exception:
         return None
 
@@ -308,34 +357,47 @@ def parse_request_cookies_and_body(req):
     req.cookies = cookies
 
 def handle_client_sync(client_sock, app):
-    client_sock.settimeout(10.0)
+    client_sock.settimeout(5.0)  # Keep-alive idle timeout
     upgraded = False
     try:
-        req = parse_request_sync(client_sock)
-        if not req:
-            return
+        while app.running:
+            req = parse_request_sync(client_sock)
+            if not req:
+                break
+            
+            # Check WS upgrade
+            if req.headers.get("upgrade", "").lower() == "websocket" and app.ws_router:
+                ws_handler, ws_path_params = app.ws_router.match(req.method, req.path)
+                if ws_handler:
+                    upgraded = True
+                    handle_ws_upgrade(client_sock, req, ws_handler, ws_path_params)
+                    return
 
-        # Check WS upgrade
-        if req.headers.get("upgrade", "").lower() == "websocket" and app.ws_router:
-            ws_handler, ws_path_params = app.ws_router.match(req.method, req.path)
-            if ws_handler:
+            handler, path_params = app.router.match(req.method, req.path)
+            if not handler:
+                resp = Response(b"Not Found", status=404)
+            else:
+                req.path_params = path_params
+                final_handler = lambda r: handler(r, **r.path_params)
+                resp = app.middleware.execute(req, final_handler)
+
+            if getattr(resp, "hijacked", False):
                 upgraded = True
-                handle_ws_upgrade(client_sock, req, ws_handler, ws_path_params)
                 return
 
-        handler, path_params = app.router.match(req.method, req.path)
-        if not handler:
-            resp = Response(b"Not Found", status=404)
-        else:
-            req.path_params = path_params
-            final_handler = lambda r: handler(r, **r.path_params)
-            resp = app.middleware.execute(req, final_handler)
+            keep_alive = getattr(req, "keep_alive", False)
+            if keep_alive:
+                resp.set_header("Connection", "keep-alive")
+                resp.set_header("Keep-Alive", "timeout=5, max=100")
+            else:
+                resp.set_header("Connection", "close")
 
-        if getattr(resp, "hijacked", False):
-            upgraded = True
-            return
+            send_response_sync(client_sock, resp)
 
-        send_response_sync(client_sock, resp)
+            if not keep_alive:
+                break
+    except socket.timeout:
+        pass
     except Exception as e:
         print("[!] Thread error:", e)
         try:
