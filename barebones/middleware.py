@@ -93,3 +93,68 @@ def gzip_middleware(req, next_fn):
         pass
         
     return resp
+
+import threading
+
+class TokenBucket:
+    def __init__(self, capacity, rate):
+        self.capacity = float(capacity)
+        self.rate = float(rate)
+        self.tokens = float(capacity)
+        self.last_update = time.time()
+        self.lock = threading.Lock()
+
+    def consume(self):
+        with self.lock:
+            now = time.time()
+            elapsed = now - self.last_update
+            self.last_update = now
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
+                return True, 0.0
+            # Compute wait time for 1 token
+            needed = 1.0 - self.tokens
+            wait_time = needed / self.rate
+            return False, wait_time
+
+class RateLimiter:
+    def __init__(self, capacity, rate):
+        self.capacity = capacity
+        self.rate = rate
+        self.buckets = {}
+        self.lock = threading.Lock()
+
+    def get_bucket(self, ip):
+        with self.lock:
+            if ip not in self.buckets:
+                self.buckets[ip] = TokenBucket(self.capacity, self.rate)
+            return self.buckets[ip]
+
+def rate_limit_middleware(capacity=10, rate=5.0):
+    limiter = RateLimiter(capacity, rate)
+    def middleware(req, next_fn):
+        ip = "127.0.0.1"
+        if req.socket:
+            try:
+                ip = req.socket.getpeername()[0]
+            except Exception:
+                pass
+                
+        # Skip rate limiter for WebSockets, Telemetry streaming, or if bypass header is present
+        if "x-bypass-rate-limit" in req.headers or req.headers.get("upgrade", "").lower() == "websocket" or req.path == "/api/telemetry":
+            return next_fn(req)
+            
+        bucket = limiter.get_bucket(ip)
+        allowed, wait_time = bucket.consume()
+        if not allowed:
+            resp = Response.json(
+                {"error": "Too Many Requests", "retry_after": round(wait_time, 2)},
+                status=429
+            )
+            resp.set_header("Retry-After", str(max(1, int(wait_time))))
+            return resp
+            
+        return next_fn(req)
+    return middleware
+
