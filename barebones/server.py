@@ -217,6 +217,13 @@ class BareBones:
                     final_handler = lambda r: handler(r, **r.path_params)
                     resp = self.middleware.execute(state.request, final_handler)
 
+                if getattr(resp, "hijacked", False):
+                    try:
+                        self.selector.unregister(state.sock)
+                    except Exception:
+                        pass
+                    return
+
                 state.response = resp
                 status_text = Response.STATUS_MAP.get(resp.status, "Unknown")
                 res_lines = [f"HTTP/1.1 {resp.status} {status_text}"]
@@ -302,6 +309,7 @@ def parse_request_cookies_and_body(req):
 
 def handle_client_sync(client_sock, app):
     client_sock.settimeout(10.0)
+    upgraded = False
     try:
         req = parse_request_sync(client_sock)
         if not req:
@@ -311,6 +319,7 @@ def handle_client_sync(client_sock, app):
         if req.headers.get("upgrade", "").lower() == "websocket" and app.ws_router:
             ws_handler, ws_path_params = app.ws_router.match(req.method, req.path)
             if ws_handler:
+                upgraded = True
                 handle_ws_upgrade(client_sock, req, ws_handler, ws_path_params)
                 return
 
@@ -322,6 +331,10 @@ def handle_client_sync(client_sock, app):
             final_handler = lambda r: handler(r, **r.path_params)
             resp = app.middleware.execute(req, final_handler)
 
+        if getattr(resp, "hijacked", False):
+            upgraded = True
+            return
+
         send_response_sync(client_sock, resp)
     except Exception as e:
         print("[!] Thread error:", e)
@@ -330,10 +343,11 @@ def handle_client_sync(client_sock, app):
         except Exception:
             pass
     finally:
-        try:
-            client_sock.close()
-        except Exception:
-            pass
+        if not upgraded:
+            try:
+                client_sock.close()
+            except Exception:
+                pass
 
 def parse_request_sync(client_sock):
     buffer = bytearray()

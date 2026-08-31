@@ -655,9 +655,41 @@
             }
         }
 
-        // Periodic stats update
-        setInterval(fetchStats, 3000);
+        // Setup real-time telemetry via Server-Sent Events (SSE)
+        let telemetrySource;
+        function setupTelemetry() {
+            if (telemetrySource) {
+                telemetrySource.close();
+            }
+            telemetrySource = new EventSource('/api/telemetry');
+            telemetrySource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    document.getElementById('stats-mode').innerText = data.mode.toUpperCase();
+                    document.getElementById('stats-mem').innerText = data.memory_mb + ' MB';
+                    document.getElementById('stats-threads').innerText = data.active_threads;
+                    document.getElementById('stats-visits').innerText = data.visits;
+                    
+                    // Adjust mode control buttons
+                    if (data.mode === 'threaded') {
+                        document.getElementById('mode-threaded-btn').className = 'btn btn-active-mode';
+                        document.getElementById('mode-eventloop-btn').className = 'btn';
+                    } else {
+                        document.getElementById('mode-threaded-btn').className = 'btn';
+                        document.getElementById('mode-eventloop-btn').className = 'btn btn-active-mode';
+                    }
+                } catch (err) {
+                    console.error("Failed to parse telemetry data:", err);
+                }
+            };
+            telemetrySource.onerror = function(err) {
+                console.log("Telemetry stream disconnected. Auto-reconnecting...");
+            };
+        }
+
+        // Fetch initial stats & activate telemetry
         fetchStats();
+        setupTelemetry();
 
         // Toggle Mode
         async function toggleMode(mode) {
@@ -670,8 +702,11 @@
                 const data = await res.json();
                 if (data.success) {
                     console.log("Successfully triggered reload in mode: " + mode);
-                    // Wait briefly for restart and reload stats
-                    setTimeout(fetchStats, 500);
+                    // Wait briefly for restart, then reload stats and restart telemetry
+                    setTimeout(() => {
+                        fetchStats();
+                        setupTelemetry();
+                    }, 600);
                 }
             } catch (err) {
                 console.error("Failed to toggle mode", err);

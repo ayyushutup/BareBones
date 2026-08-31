@@ -140,10 +140,10 @@ class Router:
         pattern = re.sub(r'<([^>]+)>', replace_tag, pattern)
         
         regex = re.compile("^" + pattern + "$")
-        self.routes.append((method.upper(), regex, handler))
+        self.routes.append((method.upper(), regex, handler, path))
 
     def match(self, method, path):
-        for r_method, r_regex, handler in self.routes:
+        for r_method, r_regex, handler, r_path in self.routes:
             if r_method == method:
                 m = r_regex.match(path)
                 if m:
