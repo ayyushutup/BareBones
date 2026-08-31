@@ -48,7 +48,9 @@ class TestConcurrency(unittest.TestCase):
     def send_request(self, results, idx):
         url = "http://127.0.0.1:9090/hello"
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:
+            req = urllib.request.Request(url)
+            req.add_header("x-bypass-rate-limit", "true")
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
                 data = resp.read()
                 status = resp.status
                 results[idx] = (status, data)
@@ -97,7 +99,7 @@ class TestConcurrency(unittest.TestCase):
         req = urllib.request.Request(
             toggle_url,
             data=req_data,
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json", "x-bypass-rate-limit": "true"}
         )
         
         with urllib.request.urlopen(req) as resp:

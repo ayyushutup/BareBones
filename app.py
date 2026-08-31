@@ -1,10 +1,44 @@
 import os
+import sys
 import threading
 import urllib.request
+import collections
 from barebones import BareBones, Response
 from barebones.static import serve_static
 
 app = BareBones(secret_key="barebones_super_secret_signing_key_12345")
+
+# ─── Live Log Broadcasting ───────────────────────────────────────────────────
+# Thread-safe broadcaster: each SSE subscriber gets its own deque queue.
+_log_lock = threading.Lock()
+_log_subscribers: list = []
+
+class LogStream:
+    """Intercepts sys.stdout and fans out each line to all SSE log subscribers."""
+    def __init__(self, original):
+        self._orig = original
+
+    def write(self, data):
+        self._orig.write(data)
+        if data.strip():
+            with _log_lock:
+                dead = []
+                for q in _log_subscribers:
+                    try:
+                        if len(q) < 200:   # cap per-subscriber buffer
+                            q.append(data.strip())
+                    except Exception:
+                        dead.append(q)
+                for q in dead:
+                    _log_subscribers.remove(q)
+
+    def flush(self):
+        self._orig.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._orig, name)
+
+sys.stdout = LogStream(sys.stdout)
 
 # Ensure static folder and sample video exist
 def download_sample_video():
@@ -388,6 +422,66 @@ def get_telemetry(req):
                 pass
                 
     threading.Thread(target=stream_telemetry, daemon=True).start()
+    return resp
+
+# Live server log stream — SSE endpoint
+@app.get("/api/logs")
+def get_logs(req):
+    """
+    Streams live server log lines via Server-Sent Events.
+    Each event is a JSON object with 'line' and 'ts' fields.
+    """
+    import json, time
+    sock = req.socket
+    if not sock:
+        return Response(b"Socket required", status=400)
+
+    sock.setblocking(True)
+    headers = [
+        "HTTP/1.1 200 OK",
+        "Content-Type: text/event-stream",
+        "Cache-Control: no-cache",
+        "Connection: keep-alive",
+        "Access-Control-Allow-Origin: *",
+        "",
+        ""
+    ]
+    try:
+        sock.sendall("\r\n".join(headers).encode('utf-8'))
+    except Exception:
+        return Response(b"Failed to init stream", status=500)
+
+    resp = Response(status=200)
+    resp.hijacked = True
+
+    # Per-subscriber queue
+    q: collections.deque = collections.deque()
+    with _log_lock:
+        _log_subscribers.append(q)
+
+    def stream_logs():
+        try:
+            while app.running:
+                if q:
+                    line = q.popleft()
+                    payload = json.dumps({"line": line, "ts": time.strftime("%H:%M:%S")})
+                    sock.sendall(f"data: {payload}\n\n".encode('utf-8'))
+                else:
+                    time.sleep(0.05)
+        except Exception:
+            pass
+        finally:
+            with _log_lock:
+                try:
+                    _log_subscribers.remove(q)
+                except ValueError:
+                    pass
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    threading.Thread(target=stream_logs, daemon=True).start()
     return resp
 
 # WebSocket Chat Room state

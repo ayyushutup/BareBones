@@ -448,6 +448,71 @@ def gzip_middleware(req, next_fn):
         
     return resp
 
+import threading
+
+class TokenBucket:
+    def __init__(self, capacity, rate):
+        self.capacity = float(capacity)
+        self.rate = float(rate)
+        self.tokens = float(capacity)
+        self.last_update = time.time()
+        self.lock = threading.Lock()
+
+    def consume(self):
+        with self.lock:
+            now = time.time()
+            elapsed = now - self.last_update
+            self.last_update = now
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
+                return True, 0.0
+            # Compute wait time for 1 token
+            needed = 1.0 - self.tokens
+            wait_time = needed / self.rate
+            return False, wait_time
+
+class RateLimiter:
+    def __init__(self, capacity, rate):
+        self.capacity = capacity
+        self.rate = rate
+        self.buckets = {}
+        self.lock = threading.Lock()
+
+    def get_bucket(self, ip):
+        with self.lock:
+            if ip not in self.buckets:
+                self.buckets[ip] = TokenBucket(self.capacity, self.rate)
+            return self.buckets[ip]
+
+def rate_limit_middleware(capacity=10, rate=5.0):
+    limiter = RateLimiter(capacity, rate)
+    def middleware(req, next_fn):
+        ip = "127.0.0.1"
+        if req.socket:
+            try:
+                ip = req.socket.getpeername()[0]
+            except Exception:
+                pass
+                
+        # Skip rate limiter for WebSockets, Telemetry streaming, or if bypass header is present
+        if "x-bypass-rate-limit" in req.headers or req.headers.get("upgrade", "").lower() == "websocket" or req.path == "/api/telemetry":
+            return next_fn(req)
+            
+        bucket = limiter.get_bucket(ip)
+        allowed, wait_time = bucket.consume()
+        if not allowed:
+            resp = Response.json(
+                {"error": "Too Many Requests", "retry_after": round(wait_time, 2)},
+                status=429
+            )
+            resp.set_header("Retry-After", str(max(1, int(wait_time))))
+            return resp
+            
+        return next_fn(req)
+    return middleware
+
+
 
 
 # ==========================================================================
@@ -548,6 +613,7 @@ import socket
 import threading
 import selectors
 import urllib.parse
+import time
 
 class ConnectionState:
     def __init__(self, sock):
@@ -558,6 +624,7 @@ class ConnectionState:
         self.request_body_acc = bytearray()
         self.response = None
         self.response_generator = None
+        self.last_activity = time.time()
 
 class BareBones:
     def __init__(self, secret_key="barebones_secret"):
@@ -572,6 +639,7 @@ class BareBones:
         self.selector = None
 
         # Register default body parser and session middlewares
+        self.middleware.add(rate_limit_middleware(capacity=15, rate=3.0)) # 15 tokens capacity, 3 refills per sec
         self.middleware.add(json_parser_middleware)
         self.middleware.add(form_parser_middleware)
         self.middleware.add(session_middleware(secret_key))
@@ -666,6 +734,17 @@ class BareBones:
         self.selector.register(self.server_sock, selectors.EVENT_READ, data="accept")
 
         while self.running and not self._mode_changed:
+            now = time.time()
+            try:
+                for fd, key in list(self.selector.get_map().items()):
+                    if key.data != "accept":
+                        state = key.data
+                        if state.request is None and not state.write_buffer:
+                            if now - state.last_activity > 5.0:
+                                self.close_connection(state)
+            except Exception:
+                pass
+
             try:
                 events = self.selector.select(timeout=1.0)
             except Exception:
@@ -703,7 +782,23 @@ class BareBones:
         except Exception:
             pass
 
+    def finish_response(self, state):
+        keep_alive = getattr(state.request, "keep_alive", False)
+        if keep_alive and self.running:
+            state.read_buffer = bytearray()
+            state.request = None
+            state.request_body_acc = bytearray()
+            state.response = None
+            state.response_generator = None
+            try:
+                self.selector.modify(state.sock, selectors.EVENT_READ, data=state)
+            except Exception:
+                self.close_connection(state)
+        else:
+            self.close_connection(state)
+
     def process_read(self, state):
+        state.last_activity = time.time()
         try:
             chunk = state.sock.recv(4096)
         except (BlockingIOError, InterruptedError):
@@ -768,6 +863,15 @@ class BareBones:
                 state.response = resp
                 status_text = Response.STATUS_MAP.get(resp.status, "Unknown")
                 res_lines = [f"HTTP/1.1 {resp.status} {status_text}"]
+                
+                # Setup Connection Persistence headers
+                keep_alive = getattr(state.request, "keep_alive", False)
+                if keep_alive:
+                    resp.set_header("Connection", "keep-alive")
+                    resp.set_header("Keep-Alive", "timeout=5, max=100")
+                else:
+                    resp.set_header("Connection", "close")
+
                 if "content-length" not in resp.headers and not resp.file_path:
                     resp.set_header("Content-Length", str(len(resp.body)))
                 for k, v in resp.headers.items():
@@ -782,19 +886,20 @@ class BareBones:
                 self.selector.modify(state.sock, selectors.EVENT_WRITE, data=state)
 
     def process_write(self, state):
+        state.last_activity = time.time()
         if not state.write_buffer:
             if state.response_generator:
                 try:
                     chunk = next(state.response_generator)
                     state.write_buffer.extend(chunk)
                 except StopIteration:
-                    self.close_connection(state)
+                    self.finish_response(state)
                     return
                 except Exception:
                     self.close_connection(state)
                     return
             else:
-                self.close_connection(state)
+                self.finish_response(state)
                 return
 
         try:
@@ -834,7 +939,16 @@ def parse_request_headers(header_bytes, sock):
                 k, v = line.split(':', 1)
                 headers[k.strip().lower()] = v.strip()
 
-        return Request(method, path, headers, query, b"", {}, sock)
+        version = req_line[2] if len(req_line) > 2 else "HTTP/1.1"
+        conn_header = headers.get("connection", "").lower()
+        if "1.1" in version:
+            keep_alive = conn_header != "close"
+        else:
+            keep_alive = conn_header == "keep-alive"
+
+        req = Request(method, path, headers, query, b"", {}, sock)
+        req.keep_alive = keep_alive
+        return req
     except Exception:
         return None
 
@@ -849,34 +963,47 @@ def parse_request_cookies_and_body(req):
     req.cookies = cookies
 
 def handle_client_sync(client_sock, app):
-    client_sock.settimeout(10.0)
+    client_sock.settimeout(5.0)  # Keep-alive idle timeout
     upgraded = False
     try:
-        req = parse_request_sync(client_sock)
-        if not req:
-            return
+        while app.running:
+            req = parse_request_sync(client_sock)
+            if not req:
+                break
+            
+            # Check WS upgrade
+            if req.headers.get("upgrade", "").lower() == "websocket" and app.ws_router:
+                ws_handler, ws_path_params = app.ws_router.match(req.method, req.path)
+                if ws_handler:
+                    upgraded = True
+                    handle_ws_upgrade(client_sock, req, ws_handler, ws_path_params)
+                    return
 
-        # Check WS upgrade
-        if req.headers.get("upgrade", "").lower() == "websocket" and app.ws_router:
-            ws_handler, ws_path_params = app.ws_router.match(req.method, req.path)
-            if ws_handler:
+            handler, path_params = app.router.match(req.method, req.path)
+            if not handler:
+                resp = Response(b"Not Found", status=404)
+            else:
+                req.path_params = path_params
+                final_handler = lambda r: handler(r, **r.path_params)
+                resp = app.middleware.execute(req, final_handler)
+
+            if getattr(resp, "hijacked", False):
                 upgraded = True
-                handle_ws_upgrade(client_sock, req, ws_handler, ws_path_params)
                 return
 
-        handler, path_params = app.router.match(req.method, req.path)
-        if not handler:
-            resp = Response(b"Not Found", status=404)
-        else:
-            req.path_params = path_params
-            final_handler = lambda r: handler(r, **r.path_params)
-            resp = app.middleware.execute(req, final_handler)
+            keep_alive = getattr(req, "keep_alive", False)
+            if keep_alive:
+                resp.set_header("Connection", "keep-alive")
+                resp.set_header("Keep-Alive", "timeout=5, max=100")
+            else:
+                resp.set_header("Connection", "close")
 
-        if getattr(resp, "hijacked", False):
-            upgraded = True
-            return
+            send_response_sync(client_sock, resp)
 
-        send_response_sync(client_sock, resp)
+            if not keep_alive:
+                break
+    except socket.timeout:
+        pass
     except Exception as e:
         print("[!] Thread error:", e)
         try:

@@ -122,5 +122,25 @@ class TestBareBonesFramework(unittest.TestCase):
         decompressed = gzip.decompress(resp.body).decode('utf-8')
         self.assertEqual(decompressed, large_body)
 
+    def test_rate_limiter(self):
+        from barebones.middleware import rate_limit_middleware
+        # Capacity of 2, refill rate of 1 per second
+        mw = rate_limit_middleware(capacity=2, rate=1.0)
+        
+        req = Request("GET", "/test", {}, {}, b"", {})
+        
+        # First request should pass
+        resp1 = mw(req, lambda r: Response(b"OK", status=200))
+        self.assertEqual(resp1.status, 200)
+        
+        # Second request should pass
+        resp2 = mw(req, lambda r: Response(b"OK", status=200))
+        self.assertEqual(resp2.status, 200)
+        
+        # Third request should be limited (429)
+        resp3 = mw(req, lambda r: Response(b"OK", status=200))
+        self.assertEqual(resp3.status, 429)
+        self.assertEqual(resp3.headers.get("retry-after"), "1")
+
 if __name__ == "__main__":
     unittest.main()

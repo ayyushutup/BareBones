@@ -141,8 +141,8 @@ def rate_limit_middleware(capacity=10, rate=5.0):
             except Exception:
                 pass
                 
-        # Skip rate limiter for WebSockets, Telemetry streaming, or if bypass header is present
-        if "x-bypass-rate-limit" in req.headers or req.headers.get("upgrade", "").lower() == "websocket" or req.path == "/api/telemetry":
+        # Skip rate limiter for WebSockets, Telemetry streaming, Log streaming, or if bypass header is present
+        if "x-bypass-rate-limit" in req.headers or req.headers.get("upgrade", "").lower() == "websocket" or req.path in ("/api/telemetry", "/api/logs"):
             return next_fn(req)
             
         bucket = limiter.get_bucket(ip)
