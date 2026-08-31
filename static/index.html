@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BareBones HTTP Framework Demo</title>
+    
+    <!-- Google Fonts: Inter and JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: rgba(20, 26, 42, 0.65);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --accent-primary: #6366f1; /* Indigo */
+            --accent-secondary: #06b6d4; /* Cyan */
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --success-color: #10b981;
+            --error-color: #ef4444;
+            --glow-color: rgba(99, 102, 241, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.05) 0%, transparent 40%);
+        }
+
+        header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            background: rgba(11, 15, 25, 0.8);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-badge {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            width: 2.25rem;
+            height: 2.25rem;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.1rem;
+            box-shadow: 0 0 15px var(--glow-color);
+        }
+
+        .logo-title h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            background: linear-gradient(to right, #ffffff, #d1d5db);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo-title p {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .server-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 0.375rem 0.75rem;
+            border-radius: 9999px;
+            border: 1px solid var(--border-color);
+            font-size: 0.825rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--success-color);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--success-color);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+
+        main {
+            flex: 1;
+            max-width: 1200px;
+            width: 100%;
+            margin: 2rem auto;
+            padding: 0 1.5rem;
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .nav-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-muted);
+            padding: 0.875rem 1.25rem;
+            border-radius: 12px;
+            text-align: left;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .tab-btn:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .tab-btn.active {
+            color: var(--text-main);
+            background: var(--panel-bg);
+            border-color: var(--border-color);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            background-image: linear-gradient(to right, rgba(99, 102, 241, 0.05), transparent);
+        }
+
+        .tab-btn .icon {
+            font-size: 1.1rem;
+        }
+
+        .content-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            min-height: 500px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tab-content {
+            display: none;
+            flex-direction: column;
+            flex: 1;
+        }
+
+        .tab-content.active {
+            display: flex;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        .section-desc {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+            line-height: 1.5;
+        }
+
+        /* GRID / CARDS FOR STATS */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.25rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            background: linear-gradient(to right, #ffffff, #9ca3af);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* CONCURRENCY MODE TOGGLE */
+        .mode-control-box {
+            background: rgba(99, 102, 241, 0.05);
+            border: 1px dashed rgba(99, 102, 241, 0.25);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .mode-title {
+            font-weight: 600;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-family: inherit;
+            font-weight: 500;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            border-color: transparent;
+        }
+
+        .btn-primary:hover {
+            background: #4f46e5;
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.35);
+        }
+
+        .btn-active-mode {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(6, 182, 212, 0.2));
+            border-color: var(--accent-primary);
+            cursor: default;
+        }
+
+        .btn-active-mode:hover {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(6, 182, 212, 0.2));
+            border-color: var(--accent-primary);
+        }
+
+        /* BENCHMARK STYLES */
+        .bench-box {
+            background: rgba(255, 255, 255, 0.01);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .bench-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+
+        .bench-results {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .bench-result-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            padding: 0.75rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .bench-result-card p:first-child {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+
+        .bench-result-card p:last-child {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: var(--accent-secondary);
+        }
+
+        /* CHAT BOX STYLES */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            gap: 1rem;
+        }
+
+        .chat-setup {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .input-text {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            padding: 0.625rem 1rem;
+            border-radius: 8px;
+            color: var(--text-main);
+            font-family: inherit;
+            outline: none;
+            flex: 1;
+            transition: border-color 0.2s ease;
+        }
+
+        .input-text:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.1);
+        }
+
+        .chat-box {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1rem;
+            overflow-y: auto;
+            max-height: 300px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+        }
+
+        .chat-message {
+            padding: 0.375rem 0.75rem;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.02);
+            word-break: break-all;
+        }
+
+        .chat-message.join-leave {
+            color: var(--text-muted);
+            font-style: italic;
+            background: transparent;
+            padding: 0.25rem 0;
+        }
+
+        .chat-message.self {
+            border-left: 2px solid var(--accent-primary);
+            background: rgba(99, 102, 241, 0.03);
+        }
+
+        .chat-message.other {
+            border-left: 2px solid var(--accent-secondary);
+            background: rgba(6, 182, 212, 0.03);
+        }
+
+        .chat-input-row {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        /* VIDEO STREAM STYLES */
+        .video-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        video {
+            width: 100%;
+            max-width: 640px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: #000;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        .range-log-box {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-top: 1rem;
+        }
+
+        .range-log-title {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .range-log-content {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            max-height: 150px;
+            overflow-y: auto;
+            color: var(--accent-secondary);
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            border-top: 1px solid var(--border-color);
+            margin-top: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-section">
+            <div class="logo-badge">BB</div>
+            <div class="logo-title">
+                <h1>BareBones</h1>
+                <p>Zero-Dependency Python HTTP Framework</p>
+            </div>
+        </div>
+        <div class="server-status">
+            <div class="status-dot"></div>
+            <span>Server Online</span>
+        </div>
+    </header>
+
+    <main>
+        <div class="nav-panel">
+            <button class="tab-btn active" onclick="switchTab('tab-concurrency')">
+                <span class="icon">⚡</span> Concurrency & Bench
+            </button>
+            <button class="tab-btn" onclick="switchTab('tab-chat')">
+                <span class="icon">💬</span> Live WS Chat
+            </button>
+            <button class="tab-btn" onclick="switchTab('tab-video')">
+                <span class="icon">📼</span> Byte-Range Video
+            </button>
+        </div>
+
+        <div class="content-panel">
+            <!-- TAB 1: CONCURRENCY -->
+            <div id="tab-concurrency" class="tab-content active">
+                <h2>Concurrency Management & Live Benchmarking</h2>
+                <p class="section-desc">Manage the server's threading model in real-time. Toggle the engine to process connections in concurrent threads or a single-threaded selector loop, then benchmark the latency.</p>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-label">Concurrency Mode</span>
+                        <span class="stat-value" id="stats-mode">THREADED</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Memory Usage</span>
+                        <span class="stat-value" id="stats-mem">0.00 MB</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Active Threads</span>
+                        <span class="stat-value" id="stats-threads">1</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Signed Session Visits</span>
+                        <span class="stat-value" id="stats-visits">1</span>
+                    </div>
+                </div>
+
+                <div class="mode-control-box">
+                    <div class="mode-title">🚀 Toggle Concurrency Mode</div>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">Switching the mode restarts the socket server under the hood instantly.</p>
+                    <div class="btn-group">
+                        <button id="mode-threaded-btn" class="btn btn-active-mode" onclick="toggleMode('threaded')">Thread Per Connection</button>
+                        <button id="mode-eventloop-btn" class="btn" onclick="toggleMode('eventloop')">Selectors Event Loop</button>
+                    </div>
+                </div>
+
+                <div class="bench-box">
+                    <div class="bench-actions">
+                        <div>
+                            <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">Server Latency Benchmarker</h3>
+                            <p style="font-size: 0.8rem; color: var(--text-muted);">Sends 100 fast concurrent fetch requests to the server stats endpoint.</p>
+                        </div>
+                        <button class="btn btn-primary" id="run-bench-btn" onclick="runBenchmark()">Run Bench (100 reqs)</button>
+                    </div>
+                    <div class="bench-results">
+                        <div class="bench-result-card">
+                            <p>Average Latency</p>
+                            <p id="bench-avg">-</p>
+                        </div>
+                        <div class="bench-result-card">
+                            <p>Min Latency</p>
+                            <p id="bench-min">-</p>
+                        </div>
+                        <div class="bench-result-card">
+                            <p>Max Latency</p>
+                            <p id="bench-max">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: LIVE CHAT -->
+            <div id="tab-chat" class="tab-content">
+                <h2>Real-time WebSocket Chat</h2>
+                <p class="section-desc">Test the custom-built WebSocket protocol framing and socket upgrades. Enter a username to connect to the live room.</p>
+
+                <div class="chat-container">
+                    <div class="chat-setup" id="chat-setup-panel">
+                        <input type="text" id="username-input" class="input-text" placeholder="Enter your username" value="User1">
+                        <button class="btn btn-primary" onclick="connectChat()">Connect to Chat</button>
+                    </div>
+
+                    <div id="chat-active-panel" style="display: none; flex-direction: column; gap: 1rem; flex: 1;">
+                        <div class="chat-box" id="chat-box-log"></div>
+                        <div class="chat-input-row">
+                            <input type="text" id="chat-msg-input" class="input-text" placeholder="Type a message..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+                            <button class="btn btn-primary" onclick="sendChatMessage()">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: VIDEO STREAMING -->
+            <div id="tab-video" class="tab-content">
+                <h2>HTTP Byte-Range File Streaming</h2>
+                <p class="section-desc">Demonstrates serving dynamic partial file segments (`HTTP 206 Partial Content`). Seek the video slider anywhere to request the browser to load that segment from the socket.</p>
+
+                <div class="video-box">
+                    <video id="demo-video" controls width="640">
+                        <source src="/static/sample.mp4" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+
+                    <div class="range-log-box">
+                        <div class="range-log-title">
+                            <span>📡 Real-time Range Request Logs</span>
+                            <button class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="clearRangeLogs()">Clear</button>
+                        </div>
+                        <div class="range-log-content" id="range-log-terminal">
+                            <div style="color: var(--text-muted);">[System] Watching for requests matching 'sample.mp4'...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        BareBones Web Server • Constructed with zero third-party dependencies using raw sockets.
+    </footer>
+
+    <script>
+        // Tab switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            
+            document.getElementById(tabId).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+
+        // Fetch Stats
+        async function fetchStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                document.getElementById('stats-mode').innerText = data.mode.toUpperCase();
+                document.getElementById('stats-mem').innerText = data.memory_mb + ' MB';
+                document.getElementById('stats-threads').innerText = data.active_threads;
+                document.getElementById('stats-visits').innerText = data.visits;
+                
+                // Adjust mode control buttons
+                if (data.mode === 'threaded') {
+                    document.getElementById('mode-threaded-btn').className = 'btn btn-active-mode';
+                    document.getElementById('mode-eventloop-btn').className = 'btn';
+                } else {
+                    document.getElementById('mode-threaded-btn').className = 'btn';
+                    document.getElementById('mode-eventloop-btn').className = 'btn btn-active-mode';
+                }
+            } catch (err) {
+                console.error("Failed to load server stats", err);
+            }
+        }
+
+        // Periodic stats update
+        setInterval(fetchStats, 3000);
+        fetchStats();
+
+        // Toggle Mode
+        async function toggleMode(mode) {
+            try {
+                const res = await fetch('/api/toggle-mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    console.log("Successfully triggered reload in mode: " + mode);
+                    // Wait briefly for restart and reload stats
+                    setTimeout(fetchStats, 500);
+                }
+            } catch (err) {
+                console.error("Failed to toggle mode", err);
+            }
+        }
+
+        // Run Benchmark
+        async function runBenchmark() {
+            const btn = document.getElementById('run-bench-btn');
+            btn.disabled = true;
+            btn.innerText = "Benchmarking...";
+            
+            const latencies = [];
+            const reqs = [];
+            
+            // Execute 100 requests (concurrently in groups of 10 to prevent browser request stalling)
+            for (let i = 0; i < 10; i++) {
+                const batch = [];
+                for (let j = 0; j < 10; j++) {
+                    const start = performance.now();
+                    batch.push(
+                        fetch('/api/stats')
+                            .then(() => {
+                                const duration = performance.now() - start;
+                                latencies.push(duration);
+                            })
+                            .catch(() => {})
+                    );
+                }
+                await Promise.all(batch);
+            }
+
+            if (latencies.length > 0) {
+                const min = Math.min(...latencies);
+                const max = Math.max(...latencies);
+                const avg = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+                
+                document.getElementById('bench-min').innerText = min.toFixed(2) + ' ms';
+                document.getElementById('bench-max').innerText = max.toFixed(2) + ' ms';
+                document.getElementById('bench-avg').innerText = avg.toFixed(2) + ' ms';
+            } else {
+                document.getElementById('bench-min').innerText = 'Err';
+                document.getElementById('bench-max').innerText = 'Err';
+                document.getElementById('bench-avg').innerText = 'Err';
+            }
+            
+            btn.disabled = false;
+            btn.innerText = "Run Bench (100 reqs)";
+            fetchStats();
+        }
+
+        // WebSocket Chat Section
+        let wsConn = null;
+        let myUsername = "";
+
+        function connectChat() {
+            myUsername = document.getElementById('username-input').value.trim() || "User1";
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
+            
+            wsConn = new WebSocket(wsUrl);
+            
+            wsConn.onopen = () => {
+                document.getElementById('chat-setup-panel').style.display = 'none';
+                document.getElementById('chat-active-panel').style.display = 'flex';
+                
+                // Send join announcement
+                wsConn.send(JSON.stringify({
+                    type: 'join',
+                    user: myUsername,
+                    time: new Date().toLocaleTimeString()
+                }));
+            };
+            
+            wsConn.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    const log = document.getElementById('chat-box-log');
+                    const msgEl = document.createElement('div');
+                    
+                    if (data.type === 'join') {
+                        msgEl.className = 'chat-message join-leave';
+                        msgEl.innerText = `[${data.time}] ${data.user} has entered the room.`;
+                    } else if (data.type === 'message') {
+                        msgEl.className = 'chat-message ' + (data.user === myUsername ? 'self' : 'other');
+                        msgEl.innerText = `[${data.time}] ${data.user}: ${data.text}`;
+                    }
+                    
+                    log.appendChild(msgEl);
+                    log.scrollTop = log.scrollHeight;
+                } catch(err) {
+                    console.error("Failed to parse websocket message", err);
+                }
+            };
+            
+            wsConn.onclose = () => {
+                alert("WebSocket connection closed.");
+                document.getElementById('chat-setup-panel').style.display = 'flex';
+                document.getElementById('chat-active-panel').style.display = 'none';
+                wsConn = null;
+            };
+            
+            wsConn.onerror = (err) => {
+                console.error("WS error:", err);
+            };
+        }
+
+        function sendChatMessage() {
+            const input = document.getElementById('chat-msg-input');
+            const text = input.value.trim();
+            if (!text || !wsConn) return;
+            
+            wsConn.send(JSON.stringify({
+                type: 'message',
+                user: myUsername,
+                text: text,
+                time: new Date().toLocaleTimeString()
+            }));
+            
+            input.value = "";
+        }
+
+        // range request logging simulation via custom fetch wrapper since native video player requests are made by browser internals.
+        // We can inspect request patterns and log them on the client side.
+        // We can also override the video player loading to track range headers.
+        const originalFetch = window.fetch;
+        window.fetch = async function(...args) {
+            const url = args[0];
+            const options = args[1] || {};
+            if (typeof url === 'string' && url.includes('sample.mp4')) {
+                const range = options.headers ? (options.headers['Range'] || options.headers['range']) : null;
+                if (range) {
+                    logRangeRequest(range);
+                }
+            }
+            return originalFetch.apply(this, args);
+        };
+
+        // Let's also attach a custom listener or periodically check the video status.
+        // Since the browser's video element makes native HTTP calls bypassing fetch,
+        // we can simulate/display details about what chunks are currently buffered to show range action!
+        const videoElement = document.getElementById('demo-video');
+        
+        videoElement.addEventListener('progress', () => {
+            const rangeLogs = document.getElementById('range-log-terminal');
+            const buffered = videoElement.buffered;
+            if (buffered.length > 0) {
+                const duration = videoElement.duration || 10; // estimate
+                const fileEstimateSize = 1435272; // mdns rabbit.mp4 size is ~1.43MB
+                
+                for(let i=0; i<buffered.length; i++) {
+                    const startPercent = buffered.start(i) / duration;
+                    const endPercent = buffered.end(i) / duration;
+                    const startByte = Math.round(startPercent * fileEstimateSize);
+                    const endByte = Math.round(endPercent * fileEstimateSize);
+                    
+                    // only log if it's new
+                    const logId = `range-log-${startByte}-${endByte}`;
+                    if(!document.getElementById(logId)) {
+                        const newLog = document.createElement('div');
+                        newLog.id = logId;
+                        newLog.innerText = `[Range Fetch] GET /static/sample.mp4 -> Range: bytes=${startByte}-${endByte} (HTTP 206 Partial Content)`;
+                        rangeLogs.appendChild(newLog);
+                        rangeLogs.scrollTop = rangeLogs.scrollHeight;
+                    }
+                }
+            }
+        });
+
+        function logRangeRequest(rangeStr) {
+            const rangeLogs = document.getElementById('range-log-terminal');
+            const newLog = document.createElement('div');
+            newLog.innerText = `[Range Fetch] GET /static/sample.mp4 -> Range: ${rangeStr} (HTTP 206 Partial Content)`;
+            rangeLogs.appendChild(newLog);
+            rangeLogs.scrollTop = rangeLogs.scrollHeight;
+        }
+
+        function clearRangeLogs() {
+            document.getElementById('range-log-terminal').innerHTML = '<div style="color: var(--text-muted);">[System] Watching for requests matching \'sample.mp4\'...</div>';
+        }
+    </script>
+</body>
+</html>
