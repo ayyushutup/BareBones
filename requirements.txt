@@ -1,0 +1,3 @@
+# Empty manifest.
+# BareBones requires no third-party packages.
+# Built entirely on Python's Standard Library.
