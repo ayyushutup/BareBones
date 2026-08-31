@@ -1,33 +1,46 @@
-# BareBones: A Zero-Dependency HTTP Web Framework
+# 🦴 BareBones
+### A Zero-Dependency HTTP & WebSocket Web Framework
 
-Built entirely on Python's Standard Library — no third-party packages, no installs.
+<p><em>Built entirely on Python's Standard Library — no third-party packages, no external dependencies, zero installs.</em></p>
 
-**Track**: C — Web & Network  
-**Language**: Python (Standard Library Only)  
-**Category**: 72-Hour Zero-Dependency Hackathon  
+[![Track](https://img.shields.io/badge/Track-C%20Web%20%26%20Network-blue?style=for-the-badge)](https://github.com/ayyushutup/BareBones)
+[![Language](https://img.shields.io/badge/Language-Python%20(Stdlib%20Only)-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Category](https://img.shields.io/badge/Category-72--Hour%20Zero--Dependency%20Hackathon-purple?style=for-the-badge)](https://github.com/ayyushutup/BareBones)
+[![Dependencies](https://img.shields.io/badge/Dependencies-0%20Zero-success?style=for-the-badge)](verify_deps.py)
+
+</div>
 
 ---
 
-## The Problem
+## 📌 Project Overview
+
+* **Track**: C — Web & Network  
+* **Language**: Python (Standard Library Only)  
+* **Category**: 72-Hour Zero-Dependency Hackathon  
+* **Repository**: [`ayyushutup/BareBones`](https://github.com/ayyushutup/BareBones)
+
+---
+
+## 💡 The Problem
 
 Building a web server or API in Python almost always means reaching for a third-party framework such as Flask, FastAPI, or Django — along with everything those frameworks depend on. Every one of those dependencies is code the team did not write, must trust, and must keep updated.
 
 Python’s standard library already ships with the low-level building blocks needed to handle networking, parsing, hashing, and file serving. Those pieces are simply never assembled into something a developer can use directly.
 
-**BareBones** proves that a real, working, concurrent web framework can be built using only Python’s standard library — with zero third-party runtime dependencies.
+> **BareBones** proves that a real, working, concurrent web framework can be built using only Python’s standard library — with **zero third-party runtime dependencies**.
 
 ---
 
-## Why This Matters
+## 🌟 Why This Matters
 
-* **No supply-chain risk** — zero third-party code means zero third-party attack surface.
-* **No dependency rot** — nothing to install, nothing to break when a package updates or is deprecated.
-* **Instant deployment** — runs anywhere Python runs, with no virtual environment or package manager required.
-* **Educational transparency** — exposes what frameworks like Flask are actually doing under the hood.
+* 🛡️ **No supply-chain risk** — zero third-party code means zero third-party attack surface.
+* 🔄 **No dependency rot** — nothing to install, nothing to break when a package updates or is deprecated.
+* ⚡ **Instant deployment** — runs anywhere Python runs, with no virtual environment or package manager required.
+* 🔍 **Educational transparency** — exposes what frameworks like Flask are actually doing under the hood.
 
 ---
 
-## Architecture Overview
+## 🏛️ Architecture Overview
 
 BareBones is organized into independent layers, each responsible for one concern, mirroring the structure of production frameworks while staying entirely within the standard library.
 
@@ -53,19 +66,19 @@ BareBones is organized into independent layers, each responsible for one concern
 
 ### Components
 
-* **[server.py](file:///Users/ayushrthakur/Documents/BareBones/barebones/server.py)** — Accepts raw TCP connections and manages concurrency (thread-per-connection or selectors event loop).
-* **[router.py](file:///Users/ayushrthakur/Documents/BareBones/barebones/router.py)** — Matches incoming request paths and methods to handler functions, including dynamic path parameters.
-* **[middleware.py](file:///Users/ayushrthakur/Documents/BareBones/barebones/middleware.py)** — A chainable pipeline for logging, authentication, CORS, and body parsing.
-* **[static.py](file:///Users/ayushrthakur/Documents/BareBones/barebones/static.py)** — Serves files from disk with correct MIME types and byte-range support for streaming.
-* **[websocket.py](file:///Users/ayushrthakur/Documents/BareBones/barebones/websocket.py)** — Manages full-duplex WebSocket frames, bitmasking, and handshakes directly.
-* **[sessions.py](file:///Users/ayushrthakur/Documents/BareBones/barebones/sessions.py)** — Encrypts and validates cookie states via HMAC-SHA256.
+* **[`server.py`](barebones/server.py)** — Accepts raw TCP connections and manages concurrency (thread-per-connection or selectors event loop).
+* **[`router.py`](barebones/router.py)** — Matches incoming request paths and methods to handler functions, including dynamic path parameters.
+* **[`middleware.py`](barebones/middleware.py)** — A chainable pipeline for logging, authentication, CORS, and body parsing.
+* **[`static.py`](barebones/static.py)** — Serves files from disk with correct MIME types and byte-range support for streaming.
+* **[`websocket.py`](barebones/websocket.py)** — Manages full-duplex WebSocket frames, bitmasking, and handshakes directly.
+* **[`sessions.py`](barebones/sessions.py)** — Encrypts and validates cookie states via HMAC-SHA256.
 
 ---
 
-## Feature Mapping (Standard Library Only)
+## 🔄 Feature Mapping (Standard Library Only)
 
 | Feature | Standard Library Used | Purpose |
-|---------|-----------------------|---------|
+|:---|:---|:---|
 | **Concurrent connection handling** | `socket`, `selectors` / `threading` | Non-blocking selectors loop or Thread-per-connection |
 | **Routing with path parameters** | `re` | Regex compilation and single-pass dynamic parameter extraction |
 | **Middleware chain (logging, auth, CORS)** | Custom logic | Onion execution model wrapping request and response |
@@ -78,12 +91,12 @@ BareBones is organized into independent layers, each responsible for one concern
 
 ---
 
-## Concurrency Models
+## ⚡ Concurrency Models
 
 BareBones supports two interchangeable concurrency models:
 
 | Mode | Approach | Trade-off |
-|------|----------|-----------|
+|:---|:---|:---|
 | **Threaded** | One thread per connection (`threading`) | Simple to reason about; fine for I/O-bound workloads |
 | **Event Loop** | Single thread, `selectors.DefaultSelector()` | Higher throughput; synchronous blocking calls halt the loop |
 
@@ -92,7 +105,7 @@ BareBones supports two interchangeable concurrency models:
 
 ---
 
-## Getting Started
+## 🚀 Getting Started
 
 ### 1. Run the Server
 Launch the application:
@@ -131,12 +144,13 @@ This outputs `barebones_single.py`, which is 100% reproducible on repeat runs.
 
 ---
 
-## Deliverables Status
+## 📋 Deliverables Status
 
-- [x] **Public GitHub repository** — `https://github.com/ayyushutup/BareBones.git`
+- [x] **Public GitHub repository** — [`ayyushutup/BareBones`](https://github.com/ayyushutup/BareBones)
 - [x] **One-command build and run instructions** — Documented in README
 - [x] **Empty dependency manifest** — `requirements.txt` is empty
 - [x] **Dependency proof** — Checked via `verify_deps.py` AST scanner
 - [x] **README.md** — Problem statement, architecture, design trade-offs
 - [x] **STDLIB.md** — Package-to-standard-library substitution log
 - [x] **Automated tests** — Edge cases and concurrency verified
+```
